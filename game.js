@@ -1,6 +1,7 @@
 const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
+const LINES_PER_LEVEL = 10;
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -8,6 +9,7 @@ const nextCanvas = document.getElementById('nextCanvas');
 const nextCtx = nextCanvas.getContext('2d');
 
 const scoreEl = document.getElementById('score');
+const highscoreEl = document.getElementById('highscore');
 const levelEl = document.getElementById('level');
 const linesEl = document.getElementById('lines');
 const levelProgressEl = document.getElementById('levelProgress');
@@ -20,13 +22,8 @@ const startButton = document.getElementById('startButton');
 const pauseButton = document.getElementById('pauseButton');
 
 const COLORS = {
-  I: '#43d9ff',
-  J: '#4f67ff',
-  L: '#ff9f43',
-  O: '#ffe14d',
-  S: '#54e36f',
-  T: '#b55cff',
-  Z: '#ff5470'
+  I: '#39d9ff', J: '#5167ff', L: '#ff9f43', O: '#ffe34d',
+  S: '#52e36c', T: '#b65cff', Z: '#ff5573'
 };
 
 const SHAPES = {
@@ -39,62 +36,59 @@ const SHAPES = {
   Z: [[1,1,0],[0,1,1],[0,0,0]]
 };
 
-let board;
-let current;
-let nextPiece;
+let board = createBoard();
+let current = null;
+let nextPiece = null;
 let bag = [];
 let score = 0;
+let highscore = Number(localStorage.getItem('neonTetrisHighscore') || 0);
 let totalLines = 0;
 let level = 1;
-let linesInLevel = 0;
-let requiredLines = 6;
-let dropInterval = 900;
-let lastTime = 0;
-let dropCounter = 0;
+let dropInterval = 950;
 let running = false;
 let paused = false;
+let lastTime = 0;
 let animationId = null;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
 }
 
-function shuffle(array) {
-  for (let i = array.length - 1; i > 0; i--) {
+function shuffle(items) {
+  for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
+    [items[i], items[j]] = [items[j], items[i]];
   }
-  return array;
+  return items;
 }
 
 function getBagPiece() {
-  if (bag.length === 0) bag = shuffle(Object.keys(SHAPES));
+  if (!bag.length) bag = shuffle(Object.keys(SHAPES));
   return bag.pop();
+}
+
+function topPadding(matrix) {
+  let amount = 0;
+  for (const row of matrix) {
+    if (row.some(Boolean)) break;
+    amount++;
+  }
+  return amount;
 }
 
 function createPiece(type) {
   const matrix = SHAPES[type].map(row => [...row]);
-  return {
-    type,
-    matrix,
-    x: Math.floor((COLS - matrix[0].length) / 2),
-    y: -getTopPadding(matrix)
-  };
-}
-
-function getTopPadding(matrix) {
-  let padding = 0;
-  for (const row of matrix) {
-    if (row.some(Boolean)) break;
-    padding++;
-  }
-  return padding;
+  const y = -topPadding(matrix);
+  const x = Math.floor((COLS - matrix[0].length) / 2);
+  return { type, matrix, x, y, renderX: x, renderY: y };
 }
 
 function spawnPiece() {
   current = nextPiece || createPiece(getBagPiece());
   current.x = Math.floor((COLS - current.matrix[0].length) / 2);
-  current.y = -getTopPadding(current.matrix);
+  current.y = -topPadding(current.matrix);
+  current.renderX = current.x;
+  current.renderY = current.y;
   nextPiece = createPiece(getBagPiece());
   drawNext();
   if (collides(current.matrix, current.x, current.y)) gameOver();
@@ -104,37 +98,35 @@ function collides(matrix, offsetX, offsetY) {
   for (let y = 0; y < matrix.length; y++) {
     for (let x = 0; x < matrix[y].length; x++) {
       if (!matrix[y][x]) continue;
-      const boardX = offsetX + x;
-      const boardY = offsetY + y;
-      if (boardX < 0 || boardX >= COLS || boardY >= ROWS) return true;
-      if (boardY >= 0 && board[boardY][boardX]) return true;
+      const px = offsetX + x;
+      const py = offsetY + y;
+      if (px < 0 || px >= COLS || py >= ROWS) return true;
+      if (py >= 0 && board[py][px]) return true;
     }
   }
   return false;
 }
 
 function mergePiece() {
-  current.matrix.forEach((row, y) => {
-    row.forEach((value, x) => {
-      if (!value) return;
-      const boardY = current.y + y;
-      if (boardY >= 0) board[boardY][current.x + x] = current.type;
-    });
-  });
+  current.matrix.forEach((row, y) => row.forEach((value, x) => {
+    if (!value) return;
+    const py = current.y + y;
+    if (py >= 0) board[py][current.x + x] = current.type;
+  }));
 }
 
 function rotateMatrix(matrix) {
-  return matrix[0].map((_, index) => matrix.map(row => row[index]).reverse());
+  return matrix[0].map((_, i) => matrix.map(row => row[i]).reverse());
 }
 
 function rotatePiece() {
   if (!running || paused) return;
   const rotated = rotateMatrix(current.matrix);
-  const kicks = [0, -1, 1, -2, 2];
-  for (const kick of kicks) {
+  for (const kick of [0, -1, 1, -2, 2]) {
     if (!collides(rotated, current.x + kick, current.y)) {
       current.matrix = rotated;
       current.x += kick;
+      current.renderX = current.x;
       return;
     }
   }
@@ -142,19 +134,24 @@ function rotatePiece() {
 
 function movePiece(direction) {
   if (!running || paused) return;
-  if (!collides(current.matrix, current.x + direction, current.y)) current.x += direction;
+  const target = current.x + direction;
+  if (!collides(current.matrix, target, current.y)) current.x = target;
 }
 
-function softDrop(manual = false) {
-  if (!running || paused) return;
+function stepDown(manual = false) {
+  if (!running || paused) return false;
   if (!collides(current.matrix, current.x, current.y + 1)) {
     current.y++;
-    if (manual) score += 1;
-  } else {
-    lockPiece();
+    if (manual) addScore(1);
+    return true;
   }
-  dropCounter = 0;
-  updateUI();
+  lockPiece();
+  return false;
+}
+
+function softDrop() {
+  if (!running || paused) return;
+  if (stepDown(true) && current) current.renderY = current.y;
 }
 
 function hardDrop() {
@@ -164,9 +161,9 @@ function hardDrop() {
     current.y++;
     distance++;
   }
-  score += distance * 2;
+  addScore(distance * 2);
+  current.renderY = current.y;
   lockPiece();
-  updateUI();
 }
 
 function lockPiece() {
@@ -185,58 +182,97 @@ function clearLines() {
       y++;
     }
   }
-
   if (!cleared) return;
 
-  const lineScores = [0, 100, 300, 500, 800];
-  score += lineScores[cleared] * level;
+  addScore([0, 100, 300, 500, 800][cleared] * level);
   totalLines += cleared;
-  linesInLevel += cleared;
-
-  while (linesInLevel >= requiredLines) {
-    linesInLevel -= requiredLines;
-    level++;
-    requiredLines = 6 + (level - 1) * 2;
-    dropInterval = Math.max(90, Math.round(900 * Math.pow(0.83, level - 1)));
+  const newLevel = Math.floor(totalLines / LINES_PER_LEVEL) + 1;
+  if (newLevel !== level) {
+    level = newLevel;
+    dropInterval = getDropInterval(level);
   }
-
   updateUI();
 }
 
-function getSpeedMultiplier() {
-  return (900 / dropInterval).toFixed(1);
+function getDropInterval(currentLevel) {
+  return Math.max(75, Math.round(950 * Math.pow(0.82, currentLevel - 1)));
+}
+
+function addScore(points) {
+  score += points;
+  if (score > highscore) {
+    highscore = score;
+    localStorage.setItem('neonTetrisHighscore', String(highscore));
+  }
+  updateUI();
 }
 
 function updateUI() {
+  const progress = totalLines % LINES_PER_LEVEL;
   scoreEl.textContent = score.toLocaleString('de-DE');
+  highscoreEl.textContent = highscore.toLocaleString('de-DE');
   levelEl.textContent = level;
   linesEl.textContent = totalLines;
-  levelProgressEl.textContent = `${linesInLevel} / ${requiredLines}`;
-  progressBar.style.width = `${Math.min(100, linesInLevel / requiredLines * 100)}%`;
-  speedEl.textContent = `${getSpeedMultiplier()}x`;
+  levelProgressEl.textContent = `${progress} / ${LINES_PER_LEVEL}`;
+  progressBar.style.width = `${progress / LINES_PER_LEVEL * 100}%`;
+  speedEl.textContent = `${(950 / dropInterval).toFixed(1)}x`;
+}
+
+function roundedRect(context, x, y, width, height, radius) {
+  context.beginPath();
+  context.roundRect(x, y, width, height, radius);
 }
 
 function drawCell(context, x, y, color, size = BLOCK) {
   const px = x * size;
   const py = y * size;
-  const gradient = context.createLinearGradient(px, py, px + size, py + size);
-  gradient.addColorStop(0, lighten(color, 22));
-  gradient.addColorStop(1, color);
-  context.fillStyle = gradient;
-  context.fillRect(px + 1, py + 1, size - 2, size - 2);
-  context.fillStyle = 'rgba(255,255,255,.18)';
-  context.fillRect(px + 3, py + 3, size - 6, 3);
-  context.strokeStyle = 'rgba(255,255,255,.2)';
-  context.strokeRect(px + 1.5, py + 1.5, size - 3, size - 3);
+  const gap = Math.max(1.5, size * 0.055);
+  const bx = px + gap;
+  const by = py + gap;
+  const bs = size - gap * 2;
+  const radius = Math.max(4, size * 0.18);
+
+  context.save();
+  context.shadowColor = color;
+  context.shadowBlur = size * 0.2;
+  const outer = context.createLinearGradient(bx, by, bx + bs, by + bs);
+  outer.addColorStop(0, brighten(color, 42));
+  outer.addColorStop(0.45, color);
+  outer.addColorStop(1, darken(color, 35));
+  context.fillStyle = outer;
+  roundedRect(context, bx, by, bs, bs, radius);
+  context.fill();
+  context.shadowBlur = 0;
+
+  const inner = context.createLinearGradient(bx, by, bx, by + bs);
+  inner.addColorStop(0, 'rgba(255,255,255,.45)');
+  inner.addColorStop(0.28, 'rgba(255,255,255,.08)');
+  inner.addColorStop(1, 'rgba(0,0,0,.24)');
+  context.fillStyle = inner;
+  roundedRect(context, bx + 2.2, by + 2.2, bs - 4.4, bs - 4.4, Math.max(3, radius - 2));
+  context.fill();
+
+  context.strokeStyle = 'rgba(255,255,255,.34)';
+  context.lineWidth = 1.1;
+  roundedRect(context, bx + 1, by + 1, bs - 2, bs - 2, Math.max(3, radius - 1));
+  context.stroke();
+
+  context.fillStyle = 'rgba(255,255,255,.32)';
+  roundedRect(context, bx + bs * 0.15, by + bs * 0.14, bs * 0.7, Math.max(2, bs * 0.08), 3);
+  context.fill();
+  context.restore();
 }
 
-function lighten(hex, amount) {
+function adjustColor(hex, amount) {
   const n = parseInt(hex.slice(1), 16);
-  const r = Math.min(255, (n >> 16) + amount);
-  const g = Math.min(255, ((n >> 8) & 255) + amount);
-  const b = Math.min(255, (n & 255) + amount);
+  const r = Math.max(0, Math.min(255, (n >> 16) + amount));
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amount));
+  const b = Math.max(0, Math.min(255, (n & 255) + amount));
   return `rgb(${r}, ${g}, ${b})`;
 }
+
+const brighten = (hex, amount) => adjustColor(hex, amount);
+const darken = (hex, amount) => adjustColor(hex, -amount);
 
 function drawGrid() {
   ctx.fillStyle = '#050816';
@@ -244,16 +280,10 @@ function drawGrid() {
   ctx.strokeStyle = 'rgba(255,255,255,.035)';
   ctx.lineWidth = 1;
   for (let x = 1; x < COLS; x++) {
-    ctx.beginPath();
-    ctx.moveTo(x * BLOCK, 0);
-    ctx.lineTo(x * BLOCK, canvas.height);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x * BLOCK, 0); ctx.lineTo(x * BLOCK, canvas.height); ctx.stroke();
   }
   for (let y = 1; y < ROWS; y++) {
-    ctx.beginPath();
-    ctx.moveTo(0, y * BLOCK);
-    ctx.lineTo(canvas.width, y * BLOCK);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, y * BLOCK); ctx.lineTo(canvas.width, y * BLOCK); ctx.stroke();
   }
 }
 
@@ -265,30 +295,22 @@ function drawBoard() {
 
 function drawPiece(piece) {
   piece.matrix.forEach((row, y) => row.forEach((value, x) => {
-    const drawY = piece.y + y;
-    if (value && drawY >= 0) drawCell(ctx, piece.x + x, drawY, COLORS[piece.type]);
+    const drawY = piece.renderY + y;
+    if (value && drawY > -1.2) drawCell(ctx, piece.renderX + x, drawY, COLORS[piece.type]);
   }));
 }
 
 function drawNext() {
   nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
-  nextCtx.fillStyle = 'rgba(0,0,0,.12)';
-  nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
   if (!nextPiece) return;
-
   const size = 24;
   const matrix = nextPiece.matrix;
-  const usedRows = matrix.filter(row => row.some(Boolean));
-  let minX = matrix[0].length;
-  let maxX = 0;
-  matrix.forEach(row => row.forEach((value, x) => {
-    if (value) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
+  let minX = matrix[0].length, maxX = 0, minY = matrix.length, maxY = 0;
+  matrix.forEach((row, y) => row.forEach((value, x) => {
+    if (value) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
   }));
-  const width = (maxX - minX + 1) * size;
-  const height = usedRows.length * size;
-  const offsetX = (nextCanvas.width - width) / 2 - minX * size;
-  const offsetY = (nextCanvas.height - height) / 2 - getTopPadding(matrix) * size;
-
+  const offsetX = (nextCanvas.width - (maxX - minX + 1) * size) / 2 - minX * size;
+  const offsetY = (nextCanvas.height - (maxY - minY + 1) * size) / 2 - minY * size;
   matrix.forEach((row, y) => row.forEach((value, x) => {
     if (value) drawCell(nextCtx, x + offsetX / size, y + offsetY / size, COLORS[nextPiece.type], size);
   }));
@@ -300,13 +322,34 @@ function draw() {
   if (current) drawPiece(current);
 }
 
+function updateSmoothPosition(delta) {
+  if (!current) return;
+  current.renderX += (current.x - current.renderX) * Math.min(1, delta / 55);
+
+  const rowsPerMs = 1 / dropInterval;
+  current.renderY += delta * rowsPerMs;
+
+  while (current && current.renderY >= current.y + 1) {
+    if (!collides(current.matrix, current.x, current.y + 1)) {
+      current.y++;
+    } else {
+      current.renderY = current.y;
+      lockPiece();
+      return;
+    }
+  }
+
+  if (current && collides(current.matrix, current.x, current.y + 1)) {
+    current.renderY = Math.min(current.renderY, current.y);
+  }
+}
+
 function gameLoop(time = 0) {
   if (!running) return;
-  const delta = time - lastTime;
+  const delta = Math.min(50, time - lastTime || 0);
   lastTime = time;
   if (!paused) {
-    dropCounter += delta;
-    if (dropCounter >= dropInterval) softDrop(false);
+    updateSmoothPosition(delta);
     draw();
   }
   animationId = requestAnimationFrame(gameLoop);
@@ -319,19 +362,16 @@ function startGame() {
   score = 0;
   totalLines = 0;
   level = 1;
-  linesInLevel = 0;
-  requiredLines = 6;
-  dropInterval = 900;
-  lastTime = 0;
-  dropCounter = 0;
-  paused = false;
+  dropInterval = getDropInterval(level);
   running = true;
+  paused = false;
+  lastTime = performance.now();
   nextPiece = createPiece(getBagPiece());
   spawnPiece();
   updateUI();
   overlay.classList.remove('visible');
   pauseButton.textContent = 'Pause';
-  gameLoop();
+  animationId = requestAnimationFrame(gameLoop);
 }
 
 function togglePause() {
@@ -344,8 +384,8 @@ function togglePause() {
     startButton.textContent = 'Weiter';
     overlay.classList.add('visible');
   } else {
-    overlay.classList.remove('visible');
     lastTime = performance.now();
+    overlay.classList.remove('visible');
   }
 }
 
@@ -355,7 +395,7 @@ function gameOver() {
   if (animationId) cancelAnimationFrame(animationId);
   draw();
   overlayTitle.textContent = 'Game Over';
-  overlayText.textContent = `Du hast ${score.toLocaleString('de-DE')} Punkte erreicht, ${totalLines} Linien gelöscht und Level ${level} erreicht.`;
+  overlayText.textContent = `Punkte: ${score.toLocaleString('de-DE')} · Linien: ${totalLines} · Level: ${level}`;
   startButton.textContent = 'Neu starten';
   overlay.classList.add('visible');
   pauseButton.textContent = 'Pause';
@@ -363,28 +403,19 @@ function gameOver() {
 
 function handleKey(event) {
   const key = event.key.toLowerCase();
-  const controlled = ['arrowleft','arrowright','arrowdown','arrowup','a','d','s','w',' ','p'];
-  if (controlled.includes(key)) event.preventDefault();
-
+  if (['arrowleft','arrowright','arrowdown','arrowup','a','d','s','w',' ','p'].includes(key)) event.preventDefault();
   if (key === 'p') return togglePause();
   if (!running || paused) return;
-
   if (key === 'arrowleft' || key === 'a') movePiece(-1);
   else if (key === 'arrowright' || key === 'd') movePiece(1);
-  else if (key === 'arrowdown' || key === 's') softDrop(true);
+  else if (key === 'arrowdown' || key === 's') softDrop();
   else if (key === 'arrowup' || key === 'w') rotatePiece();
   else if (key === ' ') hardDrop();
-
-  draw();
 }
 
-startButton.addEventListener('click', () => {
-  if (running && paused) togglePause();
-  else startGame();
-});
+startButton.addEventListener('click', () => running && paused ? togglePause() : startGame());
 pauseButton.addEventListener('click', togglePause);
 document.addEventListener('keydown', handleKey);
 
-board = createBoard();
-draw();
 updateUI();
+draw();
