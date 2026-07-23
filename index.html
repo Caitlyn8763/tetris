@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Tetris</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="game-shell">
+    <section class="game-panel">
+      <header class="game-header">
+        <div>
+          <p class="eyebrow">ARCADE MODE</p>
+          <h1>Neon Tetris</h1>
+        </div>
+        <button id="pauseButton" class="icon-button" type="button">Pause</button>
+      </header>
+
+      <div class="game-layout">
+        <canvas id="gameCanvas" width="300" height="600" aria-label="Tetris-Spielfeld"></canvas>
+
+        <aside class="sidebar">
+          <section class="card">
+            <h2>Nächster Stein</h2>
+            <canvas id="nextCanvas" width="120" height="120"></canvas>
+          </section>
+
+          <section class="card stats-card">
+            <div class="stat-row"><span>Punkte</span><strong id="score">0</strong></div>
+            <div class="stat-row"><span>Level</span><strong id="level">1</strong></div>
+            <div class="stat-row"><span>Linien gesamt</span><strong id="lines">0</strong></div>
+            <div class="stat-row"><span>Nächstes Level</span><strong id="levelProgress">0 / 6</strong></div>
+            <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+            <div class="stat-row small"><span>Falltempo</span><strong id="speed">1.0x</strong></div>
+          </section>
+
+          <section class="card controls-card">
+            <h2>Steuerung</h2>
+            <p><kbd>←</kbd><kbd>A</kbd> links</p>
+            <p><kbd>→</kbd><kbd>D</kbd> rechts</p>
+            <p><kbd>↓</kbd><kbd>S</kbd> schneller fallen</p>
+            <p><kbd>↑</kbd><kbd>W</kbd> drehen</p>
+            <p><kbd>Leertaste</kbd> sofort ablegen</p>
+            <p><kbd>P</kbd> Pause</p>
+          </section>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div id="overlay" class="overlay visible">
+    <div class="modal">
+      <p class="eyebrow">BEREIT?</p>
+      <h2 id="overlayTitle">Neon Tetris</h2>
+      <p id="overlayText">Schließe Linien, steige durch immer schwierigere Stufen auf und knacke deinen Highscore.</p>
+      <button id="startButton" type="button">Spiel starten</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
