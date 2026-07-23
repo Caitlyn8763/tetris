@@ -28,9 +28,10 @@
 
           <section class="card stats-card">
             <div class="stat-row"><span>Punkte</span><strong id="score">0</strong></div>
+            <div class="stat-row"><span>Highscore</span><strong id="highscore">0</strong></div>
             <div class="stat-row"><span>Level</span><strong id="level">1</strong></div>
-            <div class="stat-row"><span>Linien gesamt</span><strong id="lines">0</strong></div>
-            <div class="stat-row"><span>Nächstes Level</span><strong id="levelProgress">0 / 6</strong></div>
+            <div class="stat-row"><span>Linien dieser Runde</span><strong id="lines">0</strong></div>
+            <div class="stat-row"><span>Levelziel</span><strong id="levelProgress">0 / 6</strong></div>
             <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
             <div class="stat-row small"><span>Falltempo</span><strong id="speed">1.0x</strong></div>
           </section>
@@ -53,7 +54,7 @@
     <div class="modal">
       <p class="eyebrow">BEREIT?</p>
       <h2 id="overlayTitle">Neon Tetris</h2>
-      <p id="overlayText">Schließe Linien, steige durch immer schwierigere Stufen auf und knacke deinen Highscore.</p>
+      <p id="overlayText">Schließe das Levelziel. Jede neue Runde startet schneller und mit einem schwierigeren Spielfeld.</p>
       <button id="startButton" type="button">Spiel starten</button>
     </div>
   </div>
