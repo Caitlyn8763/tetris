@@ -1,10 +1,10 @@
 const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
-const LINES_PER_LEVEL = 10;
 const LOCK_DELAY = 350;
 const DAS = 145;
 const ARR = 42;
+const LEVEL_TRANSITION_MS = 1400;
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -26,8 +26,10 @@ const pauseButton = document.getElementById('pauseButton');
 
 const COLORS = {
   I: '#39d9ff', J: '#5167ff', L: '#ff9f43', O: '#ffe34d',
-  S: '#52e36c', T: '#b65cff', Z: '#ff5573'
+  S: '#52e36c', T: '#b65cff', Z: '#ff5573', G: '#6b7280'
 };
+
+const LEVEL_BACKGROUNDS = ['#050816', '#071224', '#120a26', '#071b1b', '#201208', '#17091b'];
 
 const SHAPES = {
   I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
@@ -45,11 +47,14 @@ let nextPiece = null;
 let bag = [];
 let score = 0;
 let highscore = Number(localStorage.getItem('neonTetrisHighscore') || 0);
-let totalLines = 0;
 let level = 1;
+let linesThisLevel = 0;
+let requiredLines = 8;
 let dropInterval = 950;
 let running = false;
 let paused = false;
+let transitioning = false;
+let transitionElapsed = 0;
 let lastTime = 0;
 let animationId = null;
 let fallProgress = 0;
@@ -139,7 +144,7 @@ function rotateMatrix(matrix) {
 }
 
 function rotatePiece() {
-  if (!running || paused) return;
+  if (!running || paused || transitioning) return;
   const rotated = rotateMatrix(current.matrix);
   for (const kick of [0, -1, 1, -2, 2]) {
     if (!collides(rotated, current.x + kick, current.y)) {
@@ -153,7 +158,7 @@ function rotatePiece() {
 }
 
 function movePiece(direction) {
-  if (!running || paused || !current) return false;
+  if (!running || paused || transitioning || !current) return false;
   const target = current.x + direction;
   if (collides(current.matrix, target, current.y)) return false;
   current.x = target;
@@ -161,17 +166,8 @@ function movePiece(direction) {
   return true;
 }
 
-function softDropStep() {
-  if (!running || paused || !current) return;
-  if (!collides(current.matrix, current.x, current.y + 1)) {
-    current.y++;
-    fallProgress = 0;
-    addScore(1);
-  }
-}
-
 function hardDrop() {
-  if (!running || paused || !current) return;
+  if (!running || paused || transitioning || !current) return;
   let distance = 0;
   while (!collides(current.matrix, current.x, current.y + 1)) {
     current.y++;
@@ -185,7 +181,7 @@ function hardDrop() {
 function lockPiece() {
   mergePiece();
   clearLines();
-  spawnPiece();
+  if (!transitioning) spawnPiece();
 }
 
 function clearLines() {
@@ -201,14 +197,62 @@ function clearLines() {
   if (!cleared) return;
 
   addScore([0, 100, 300, 500, 800][cleared] * level);
-  totalLines += cleared;
-  level = Math.floor(totalLines / LINES_PER_LEVEL) + 1;
+  linesThisLevel += cleared;
+  updateUI();
+
+  if (linesThisLevel >= requiredLines) beginLevelTransition();
+}
+
+function beginLevelTransition() {
+  transitioning = true;
+  transitionElapsed = 0;
+  current = null;
+  input.left = false;
+  input.right = false;
+  softDropHeld = false;
+}
+
+function finishLevelTransition() {
+  level++;
+  linesThisLevel = 0;
+  requiredLines = 8 + (level - 1) * 2;
   dropInterval = getDropInterval(level);
+  board = createStartingBoard(level);
+  bag = [];
+  nextPiece = createPiece(getBagPiece());
+  transitioning = false;
+  transitionElapsed = 0;
+  spawnPiece();
   updateUI();
 }
 
+function createStartingBoard(currentLevel) {
+  const newBoard = createBoard();
+  if (currentLevel <= 1) return newBoard;
+
+  const rows = Math.min(8, currentLevel - 1);
+  let previousHole = Math.floor(Math.random() * COLS);
+
+  for (let r = 0; r < rows; r++) {
+    const boardY = ROWS - 1 - r;
+    let hole = previousHole;
+    while (hole === previousHole && COLS > 1) hole = Math.floor(Math.random() * COLS);
+    previousHole = hole;
+
+    const extraHoles = currentLevel < 4 ? 2 : currentLevel < 7 ? 1 : 0;
+    const holes = new Set([hole]);
+    while (holes.size < extraHoles + 1) holes.add(Math.floor(Math.random() * COLS));
+
+    for (let x = 0; x < COLS; x++) {
+      if (!holes.has(x)) newBoard[boardY][x] = 'G';
+    }
+  }
+
+  return newBoard;
+}
+
 function getDropInterval(currentLevel) {
-  return Math.max(70, Math.round(950 * Math.pow(0.82, currentLevel - 1)));
+  return Math.max(70, Math.round(950 * Math.pow(0.84, currentLevel - 1)));
 }
 
 function addScore(points) {
@@ -221,13 +265,12 @@ function addScore(points) {
 }
 
 function updateUI() {
-  const progress = totalLines % LINES_PER_LEVEL;
   scoreEl.textContent = score.toLocaleString('de-DE');
   highscoreEl.textContent = highscore.toLocaleString('de-DE');
   levelEl.textContent = level;
-  linesEl.textContent = totalLines;
-  levelProgressEl.textContent = `${progress} / ${LINES_PER_LEVEL}`;
-  progressBar.style.width = `${progress / LINES_PER_LEVEL * 100}%`;
+  linesEl.textContent = linesThisLevel;
+  levelProgressEl.textContent = `${Math.min(linesThisLevel, requiredLines)} / ${requiredLines}`;
+  progressBar.style.width = `${Math.min(100, linesThisLevel / requiredLines * 100)}%`;
   speedEl.textContent = `${(950 / dropInterval).toFixed(1)}x`;
 }
 
@@ -277,17 +320,19 @@ function drawCell(context, x, y, color, size = BLOCK) {
   context.lineWidth = 1.1;
   roundedRect(context, bx + 1, by + 1, bs - 2, bs - 2, Math.max(3, radius - 1));
   context.stroke();
-
-  context.fillStyle = 'rgba(255,255,255,.32)';
-  roundedRect(context, bx + bs * 0.15, by + bs * 0.14, bs * 0.7, Math.max(2, bs * 0.08), 3);
-  context.fill();
   context.restore();
 }
 
+function getBoardColor() {
+  if (!transitioning) return LEVEL_BACKGROUNDS[(level - 1) % LEVEL_BACKGROUNDS.length];
+  const pulse = Math.sin((transitionElapsed / LEVEL_TRANSITION_MS) * Math.PI);
+  return pulse > 0.5 ? '#1b4d5c' : '#28114c';
+}
+
 function drawGrid() {
-  ctx.fillStyle = '#050816';
+  ctx.fillStyle = getBoardColor();
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = 'rgba(255,255,255,.035)';
+  ctx.strokeStyle = 'rgba(255,255,255,.04)';
   ctx.lineWidth = 1;
   for (let x = 1; x < COLS; x++) {
     ctx.beginPath(); ctx.moveTo(x * BLOCK, 0); ctx.lineTo(x * BLOCK, canvas.height); ctx.stroke();
@@ -311,6 +356,21 @@ function drawPiece(piece) {
   }));
 }
 
+function drawTransition() {
+  const progress = Math.min(1, transitionElapsed / LEVEL_TRANSITION_MS);
+  const alpha = Math.sin(progress * Math.PI);
+  ctx.save();
+  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.16})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.textAlign = 'center';
+  ctx.font = '700 30px system-ui';
+  ctx.fillText(`LEVEL ${level} GESCHAFFT`, canvas.width / 2, canvas.height / 2 - 8);
+  ctx.font = '600 16px system-ui';
+  ctx.fillText(`LEVEL ${level + 1}`, canvas.width / 2, canvas.height / 2 + 24);
+  ctx.restore();
+}
+
 function drawNext() {
   nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
   if (!nextPiece) return;
@@ -330,7 +390,8 @@ function drawNext() {
 function draw() {
   drawGrid();
   drawBoard();
-  if (current) drawPiece(current);
+  if (current && !transitioning) drawPiece(current);
+  if (transitioning) drawTransition();
 }
 
 function updateHorizontalInput(delta) {
@@ -343,7 +404,6 @@ function updateHorizontalInput(delta) {
     return;
   }
   if (!direction) return;
-
   input.horizontalHeldFor += delta;
   if (input.horizontalHeldFor < DAS) return;
   input.repeatAccumulator += delta;
@@ -378,11 +438,18 @@ function gameLoop(time = 0) {
   if (!running) return;
   const delta = Math.min(50, time - lastTime || 0);
   lastTime = time;
+
   if (!paused) {
-    updateHorizontalInput(delta);
-    updateFall(delta);
+    if (transitioning) {
+      transitionElapsed += delta;
+      if (transitionElapsed >= LEVEL_TRANSITION_MS) finishLevelTransition();
+    } else {
+      updateHorizontalInput(delta);
+      updateFall(delta);
+    }
     draw();
   }
+
   animationId = requestAnimationFrame(gameLoop);
 }
 
@@ -391,11 +458,13 @@ function startGame() {
   board = createBoard();
   bag = [];
   score = 0;
-  totalLines = 0;
   level = 1;
+  linesThisLevel = 0;
+  requiredLines = 8;
   dropInterval = getDropInterval(level);
   running = true;
   paused = false;
+  transitioning = false;
   lastTime = performance.now();
   fallProgress = 0;
   lockTimer = 0;
@@ -412,7 +481,7 @@ function startGame() {
 }
 
 function togglePause() {
-  if (!running) return;
+  if (!running || transitioning) return;
   paused = !paused;
   pauseButton.textContent = paused ? 'Weiter' : 'Pause';
   if (paused) {
@@ -432,7 +501,7 @@ function gameOver() {
   if (animationId) cancelAnimationFrame(animationId);
   draw();
   overlayTitle.textContent = 'Game Over';
-  overlayText.textContent = `Punkte: ${score.toLocaleString('de-DE')} · Linien: ${totalLines} · Level: ${level}`;
+  overlayText.textContent = `Punkte: ${score.toLocaleString('de-DE')} · Level: ${level}`;
   startButton.textContent = 'Neu starten';
   overlay.classList.add('visible');
   pauseButton.textContent = 'Pause';
@@ -442,8 +511,7 @@ function handleKeyDown(event) {
   const key = event.key.toLowerCase();
   if (['arrowleft','arrowright','arrowdown','arrowup','a','d','s','w',' ','p'].includes(key)) event.preventDefault();
   if (key === 'p' && !event.repeat) return togglePause();
-  if (!running || paused) return;
-
+  if (!running || paused || transitioning) return;
   if (key === 'arrowleft' || key === 'a') input.left = true;
   else if (key === 'arrowright' || key === 'd') input.right = true;
   else if (key === 'arrowdown' || key === 's') softDropHeld = true;
