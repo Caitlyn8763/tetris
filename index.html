@@ -11,39 +11,52 @@
     <section class="game-panel">
       <header class="game-header">
         <div>
-          <p class="eyebrow">ARCADE MODE</p>
+          <p id="modeLabel" class="eyebrow">MODUS WÄHLEN</p>
           <h1>Neon Tetris</h1>
         </div>
-        <button id="pauseButton" class="icon-button" type="button">Pause</button>
+        <div class="header-actions">
+          <button id="modeButton" class="secondary-button" type="button">Modus wechseln</button>
+          <button id="pauseButton" class="icon-button" type="button">Pause</button>
+        </div>
       </header>
 
       <div class="game-layout">
         <canvas id="gameCanvas" width="300" height="600" aria-label="Tetris-Spielfeld"></canvas>
 
         <aside class="sidebar">
-          <section class="card">
-            <h2>Nächster Stein</h2>
-            <canvas id="nextCanvas" width="120" height="120"></canvas>
-          </section>
+          <div class="preview-grid">
+            <section id="holdCard" class="card preview-card">
+              <h2>Hold</h2>
+              <canvas id="holdCanvas" width="110" height="90"></canvas>
+            </section>
+            <section class="card preview-card">
+              <h2>Nächste Steine</h2>
+              <canvas id="nextCanvas" width="110" height="270"></canvas>
+            </section>
+          </div>
 
           <section class="card stats-card">
             <div class="stat-row"><span>Punkte</span><strong id="score">0</strong></div>
             <div class="stat-row"><span>Highscore</span><strong id="highscore">0</strong></div>
             <div class="stat-row"><span>Level</span><strong id="level">1</strong></div>
-            <div class="stat-row"><span>Linien dieser Runde</span><strong id="lines">0</strong></div>
-            <div class="stat-row"><span>Levelziel</span><strong id="levelProgress">0 / 6</strong></div>
-            <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+            <div class="stat-row"><span>Linien</span><strong id="lines">0</strong></div>
+            <div id="goalRow" class="stat-row"><span>Levelziel</span><strong id="levelProgress">0 / 8</strong></div>
+            <div id="progressTrack" class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
             <div class="stat-row small"><span>Falltempo</span><strong id="speed">1.0x</strong></div>
+            <div class="stat-row small"><span>Combo</span><strong id="combo">–</strong></div>
+            <div class="stat-row small"><span>Back-to-Back</span><strong id="backToBack">–</strong></div>
           </section>
 
           <section class="card controls-card">
             <h2>Steuerung</h2>
-            <p><kbd>←</kbd><kbd>A</kbd> links</p>
-            <p><kbd>→</kbd><kbd>D</kbd> rechts</p>
-            <p><kbd>↓</kbd><kbd>S</kbd> schneller fallen</p>
-            <p><kbd>↑</kbd><kbd>W</kbd> drehen</p>
-            <p><kbd>Leertaste</kbd> sofort ablegen</p>
-            <p><kbd>P</kbd> Pause</p>
+            <p><span><kbd>←</kbd><kbd>A</kbd></span> links</p>
+            <p><span><kbd>→</kbd><kbd>D</kbd></span> rechts</p>
+            <p><span><kbd>↓</kbd><kbd>S</kbd></span> Soft Drop</p>
+            <p><span><kbd>↑</kbd><kbd>W</kbd></span> rechts drehen</p>
+            <p><span><kbd>Z</kbd></span> links drehen</p>
+            <p><span><kbd>Leertaste</kbd></span> Hard Drop</p>
+            <p><span><kbd>C</kbd><kbd>Shift</kbd></span> Hold</p>
+            <p><span><kbd>P</kbd></span> Pause</p>
           </section>
         </aside>
       </div>
@@ -52,10 +65,20 @@
 
   <div id="overlay" class="overlay visible">
     <div class="modal">
-      <p class="eyebrow">BEREIT?</p>
+      <p id="overlayEyebrow" class="eyebrow">SPIELMODUS</p>
       <h2 id="overlayTitle">Neon Tetris</h2>
-      <p id="overlayText">Schließe das Levelziel. Jede neue Runde startet schneller und mit einem schwierigeren Spielfeld.</p>
-      <button id="startButton" type="button">Spiel starten</button>
+      <p id="overlayText">Wähle, wie du spielen möchtest.</p>
+      <div id="modeChoices" class="mode-choices">
+        <button class="mode-choice" data-mode="levels" type="button">
+          <strong>Levelmodus</strong>
+          <span>Handgebaute Spielfelder, Ziele und Levelübergänge.</span>
+        </button>
+        <button class="mode-choice" data-mode="classic" type="button">
+          <strong>Klassisches Tetris</strong>
+          <span>Endlos, leeres Feld, Hold, Ghost, Combos und steigendes Tempo.</span>
+        </button>
+      </div>
+      <button id="startButton" class="hidden" type="button">Spiel starten</button>
     </div>
   </div>
 
