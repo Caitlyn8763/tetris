@@ -2,6 +2,9 @@ const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
 const LINES_PER_LEVEL = 10;
+const LOCK_DELAY = 350;
+const DAS = 145;
+const ARR = 42;
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -49,6 +52,17 @@ let running = false;
 let paused = false;
 let lastTime = 0;
 let animationId = null;
+let fallProgress = 0;
+let lockTimer = 0;
+let softDropHeld = false;
+
+const input = {
+  left: false,
+  right: false,
+  horizontalDirection: 0,
+  horizontalHeldFor: 0,
+  repeatAccumulator: 0
+};
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
@@ -78,9 +92,13 @@ function topPadding(matrix) {
 
 function createPiece(type) {
   const matrix = SHAPES[type].map(row => [...row]);
-  const y = -topPadding(matrix);
-  const x = Math.floor((COLS - matrix[0].length) / 2);
-  return { type, matrix, x, y, renderX: x, renderY: y };
+  return {
+    type,
+    matrix,
+    x: Math.floor((COLS - matrix[0].length) / 2),
+    y: -topPadding(matrix),
+    renderX: 0
+  };
 }
 
 function spawnPiece() {
@@ -88,7 +106,8 @@ function spawnPiece() {
   current.x = Math.floor((COLS - current.matrix[0].length) / 2);
   current.y = -topPadding(current.matrix);
   current.renderX = current.x;
-  current.renderY = current.y;
+  fallProgress = 0;
+  lockTimer = 0;
   nextPiece = createPiece(getBagPiece());
   drawNext();
   if (collides(current.matrix, current.x, current.y)) gameOver();
@@ -127,42 +146,39 @@ function rotatePiece() {
       current.matrix = rotated;
       current.x += kick;
       current.renderX = current.x;
+      lockTimer = 0;
       return;
     }
   }
 }
 
 function movePiece(direction) {
-  if (!running || paused) return;
+  if (!running || paused || !current) return false;
   const target = current.x + direction;
-  if (!collides(current.matrix, target, current.y)) current.x = target;
+  if (collides(current.matrix, target, current.y)) return false;
+  current.x = target;
+  lockTimer = 0;
+  return true;
 }
 
-function stepDown(manual = false) {
-  if (!running || paused) return false;
+function softDropStep() {
+  if (!running || paused || !current) return;
   if (!collides(current.matrix, current.x, current.y + 1)) {
     current.y++;
-    if (manual) addScore(1);
-    return true;
+    fallProgress = 0;
+    addScore(1);
   }
-  lockPiece();
-  return false;
-}
-
-function softDrop() {
-  if (!running || paused) return;
-  if (stepDown(true) && current) current.renderY = current.y;
 }
 
 function hardDrop() {
-  if (!running || paused) return;
+  if (!running || paused || !current) return;
   let distance = 0;
   while (!collides(current.matrix, current.x, current.y + 1)) {
     current.y++;
     distance++;
   }
   addScore(distance * 2);
-  current.renderY = current.y;
+  fallProgress = 0;
   lockPiece();
 }
 
@@ -186,16 +202,13 @@ function clearLines() {
 
   addScore([0, 100, 300, 500, 800][cleared] * level);
   totalLines += cleared;
-  const newLevel = Math.floor(totalLines / LINES_PER_LEVEL) + 1;
-  if (newLevel !== level) {
-    level = newLevel;
-    dropInterval = getDropInterval(level);
-  }
+  level = Math.floor(totalLines / LINES_PER_LEVEL) + 1;
+  dropInterval = getDropInterval(level);
   updateUI();
 }
 
 function getDropInterval(currentLevel) {
-  return Math.max(75, Math.round(950 * Math.pow(0.82, currentLevel - 1)));
+  return Math.max(70, Math.round(950 * Math.pow(0.82, currentLevel - 1)));
 }
 
 function addScore(points) {
@@ -223,6 +236,14 @@ function roundedRect(context, x, y, width, height, radius) {
   context.roundRect(x, y, width, height, radius);
 }
 
+function adjustColor(hex, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (n >> 16) + amount));
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amount));
+  const b = Math.max(0, Math.min(255, (n & 255) + amount));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 function drawCell(context, x, y, color, size = BLOCK) {
   const px = x * size;
   const py = y * size;
@@ -236,9 +257,9 @@ function drawCell(context, x, y, color, size = BLOCK) {
   context.shadowColor = color;
   context.shadowBlur = size * 0.2;
   const outer = context.createLinearGradient(bx, by, bx + bs, by + bs);
-  outer.addColorStop(0, brighten(color, 42));
+  outer.addColorStop(0, adjustColor(color, 42));
   outer.addColorStop(0.45, color);
-  outer.addColorStop(1, darken(color, 35));
+  outer.addColorStop(1, adjustColor(color, -35));
   context.fillStyle = outer;
   roundedRect(context, bx, by, bs, bs, radius);
   context.fill();
@@ -263,17 +284,6 @@ function drawCell(context, x, y, color, size = BLOCK) {
   context.restore();
 }
 
-function adjustColor(hex, amount) {
-  const n = parseInt(hex.slice(1), 16);
-  const r = Math.max(0, Math.min(255, (n >> 16) + amount));
-  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amount));
-  const b = Math.max(0, Math.min(255, (n & 255) + amount));
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-const brighten = (hex, amount) => adjustColor(hex, amount);
-const darken = (hex, amount) => adjustColor(hex, -amount);
-
 function drawGrid() {
   ctx.fillStyle = '#050816';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -294,9 +304,10 @@ function drawBoard() {
 }
 
 function drawPiece(piece) {
+  const renderY = piece.y + fallProgress;
   piece.matrix.forEach((row, y) => row.forEach((value, x) => {
-    const drawY = piece.renderY + y;
-    if (value && drawY > -1.2) drawCell(ctx, piece.renderX + x, drawY, COLORS[piece.type]);
+    const py = renderY + y;
+    if (value && py > -1.2) drawCell(ctx, piece.renderX + x, py, COLORS[piece.type]);
   }));
 }
 
@@ -322,25 +333,44 @@ function draw() {
   if (current) drawPiece(current);
 }
 
-function updateSmoothPosition(delta) {
-  if (!current) return;
-  current.renderX += (current.x - current.renderX) * Math.min(1, delta / 55);
-
-  const rowsPerMs = 1 / dropInterval;
-  current.renderY += delta * rowsPerMs;
-
-  while (current && current.renderY >= current.y + 1) {
-    if (!collides(current.matrix, current.x, current.y + 1)) {
-      current.y++;
-    } else {
-      current.renderY = current.y;
-      lockPiece();
-      return;
-    }
+function updateHorizontalInput(delta) {
+  const direction = input.left === input.right ? 0 : input.left ? -1 : 1;
+  if (direction !== input.horizontalDirection) {
+    input.horizontalDirection = direction;
+    input.horizontalHeldFor = 0;
+    input.repeatAccumulator = 0;
+    if (direction) movePiece(direction);
+    return;
   }
+  if (!direction) return;
 
-  if (current && collides(current.matrix, current.x, current.y + 1)) {
-    current.renderY = Math.min(current.renderY, current.y);
+  input.horizontalHeldFor += delta;
+  if (input.horizontalHeldFor < DAS) return;
+  input.repeatAccumulator += delta;
+  while (input.repeatAccumulator >= ARR) {
+    movePiece(direction);
+    input.repeatAccumulator -= ARR;
+  }
+}
+
+function updateFall(delta) {
+  if (!current) return;
+  const effectiveInterval = softDropHeld ? Math.max(28, dropInterval / 18) : dropInterval;
+  current.renderX += (current.x - current.renderX) * Math.min(1, delta / 48);
+
+  if (!collides(current.matrix, current.x, current.y + 1)) {
+    lockTimer = 0;
+    fallProgress += delta / effectiveInterval;
+    while (fallProgress >= 1 && !collides(current.matrix, current.x, current.y + 1)) {
+      current.y++;
+      fallProgress -= 1;
+      if (softDropHeld) addScore(1);
+    }
+    if (collides(current.matrix, current.x, current.y + 1)) fallProgress = Math.min(fallProgress, 0.999);
+  } else {
+    fallProgress = 0;
+    lockTimer += delta;
+    if (lockTimer >= LOCK_DELAY) lockPiece();
   }
 }
 
@@ -349,7 +379,8 @@ function gameLoop(time = 0) {
   const delta = Math.min(50, time - lastTime || 0);
   lastTime = time;
   if (!paused) {
-    updateSmoothPosition(delta);
+    updateHorizontalInput(delta);
+    updateFall(delta);
     draw();
   }
   animationId = requestAnimationFrame(gameLoop);
@@ -366,6 +397,12 @@ function startGame() {
   running = true;
   paused = false;
   lastTime = performance.now();
+  fallProgress = 0;
+  lockTimer = 0;
+  softDropHeld = false;
+  input.left = false;
+  input.right = false;
+  input.horizontalDirection = 0;
   nextPiece = createPiece(getBagPiece());
   spawnPiece();
   updateUI();
@@ -401,21 +438,35 @@ function gameOver() {
   pauseButton.textContent = 'Pause';
 }
 
-function handleKey(event) {
+function handleKeyDown(event) {
   const key = event.key.toLowerCase();
   if (['arrowleft','arrowright','arrowdown','arrowup','a','d','s','w',' ','p'].includes(key)) event.preventDefault();
-  if (key === 'p') return togglePause();
+  if (key === 'p' && !event.repeat) return togglePause();
   if (!running || paused) return;
-  if (key === 'arrowleft' || key === 'a') movePiece(-1);
-  else if (key === 'arrowright' || key === 'd') movePiece(1);
-  else if (key === 'arrowdown' || key === 's') softDrop();
-  else if (key === 'arrowup' || key === 'w') rotatePiece();
-  else if (key === ' ') hardDrop();
+
+  if (key === 'arrowleft' || key === 'a') input.left = true;
+  else if (key === 'arrowright' || key === 'd') input.right = true;
+  else if (key === 'arrowdown' || key === 's') softDropHeld = true;
+  else if ((key === 'arrowup' || key === 'w') && !event.repeat) rotatePiece();
+  else if (key === ' ' && !event.repeat) hardDrop();
+}
+
+function handleKeyUp(event) {
+  const key = event.key.toLowerCase();
+  if (key === 'arrowleft' || key === 'a') input.left = false;
+  else if (key === 'arrowright' || key === 'd') input.right = false;
+  else if (key === 'arrowdown' || key === 's') softDropHeld = false;
 }
 
 startButton.addEventListener('click', () => running && paused ? togglePause() : startGame());
 pauseButton.addEventListener('click', togglePause);
-document.addEventListener('keydown', handleKey);
+document.addEventListener('keydown', handleKeyDown);
+document.addEventListener('keyup', handleKeyUp);
+window.addEventListener('blur', () => {
+  input.left = false;
+  input.right = false;
+  softDropHeld = false;
+});
 
 updateUI();
 draw();
